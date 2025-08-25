@@ -91,7 +91,7 @@ CAREER_ROLES = {
 def initialize_model(hf_token):
     """Initialize the model and tokenizer"""
     try:
-        model_name = "microsoft/DialoGPT-large"  # Using the original model as the specified one may not exist
+        model_name = "openai/gpt-oss-20b"  # Using the original model as the specified one may not exist
         st.session_state.tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
         st.session_state.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, token=hf_token)
         st.session_state.model_initialized = True

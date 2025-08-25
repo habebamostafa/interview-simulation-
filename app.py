@@ -248,7 +248,7 @@ with st.sidebar:
     st.header("🔧 Configuration")
     
     # Check if token exists
-    hf_token = st.secrets.get("HF_TOKEN", None)
+    hf_token = st.secrets.get("hf_tokens", None)
     
     if not hf_token:
         st.warning("⚠️ Please add your Hugging Face token to Streamlit secrets")

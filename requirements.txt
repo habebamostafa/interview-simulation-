@@ -1,6 +1,5 @@
---upgrade pip
-torch==2.0.0
-transformers==4.30.0
-pyttsx3==2.90
-SpeechRecognition==3.10.0
+torch
+transformers
+pyttsx3
+SpeechRecognition
 pyaudio

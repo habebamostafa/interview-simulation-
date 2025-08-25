@@ -5,7 +5,6 @@ import time
 import random
 from datetime import datetime
 import pandas as pd
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 # Configure page
 st.set_page_config(
@@ -29,12 +28,6 @@ if 'user_profile' not in st.session_state:
     st.session_state.user_profile = {}
 if 'feedback_scores' not in st.session_state:
     st.session_state.feedback_scores = []
-if 'model_initialized' not in st.session_state:
-    st.session_state.model_initialized = False
-if 'tokenizer' not in st.session_state:
-    st.session_state.tokenizer = None
-if 'model' not in st.session_state:
-    st.session_state.model = None
 
 # Career roles configuration
 CAREER_ROLES = {
@@ -88,47 +81,42 @@ CAREER_ROLES = {
     }
 }
 
-def initialize_model(hf_token):
-    """Initialize the model and tokenizer"""
-    try:
-        model_name = "openai/gpt-oss-20b"  # Using the original model as the specified one may not exist
-        st.session_state.tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
-        st.session_state.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, token=hf_token)
-        st.session_state.model_initialized = True
-        return True
-    except Exception as e:
-        st.error(f"Failed to initialize model: {str(e)}")
-        return False
-
-def call_huggingface_model(prompt, max_length=500):
-    """Generate response using the loaded model"""
-    if not st.session_state.model_initialized:
+def call_huggingface_api(prompt, model_name="microsoft/DialoGPT-large", max_length=500):
+    """Call Hugging Face API with the given prompt"""
+    
+    # Get the token from secrets
+    hf_token = st.secrets.get("hf_tokens", None)
+    
+    if not hf_token:
+        st.error("Hugging Face token not found. Please add it to your Streamlit secrets.")
         return None
     
+    API_URL = f"https://api-inference.huggingface.co/models/{model_name}"
+    headers = {"Authorization": f"Bearer {hf_token}"}
+    
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_length": max_length,
+            "temperature": 0.7,
+            "do_sample": True,
+            "top_p": 0.9,
+            "return_full_text": False
+        }
+    }
+    
     try:
-        # Tokenize input
-        inputs = st.session_state.tokenizer.encode(prompt, return_tensors="pt", max_length=512, truncation=True)
-        
-        # Generate response
-        outputs = st.session_state.model.generate(
-            inputs, 
-            max_length=max_length,
-            temperature=0.7,
-            do_sample=True,
-            top_p=0.9,
-            pad_token_id=st.session_state.tokenizer.eos_token_id
-        )
-        
-        # Decode and return response
-        response = st.session_state.tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
-        # Remove the input prompt from the response if it's included
-        if response.startswith(prompt):
-            response = response[len(prompt):].strip()
-            
-        return response
+        response = requests.post(API_URL, headers=headers, json=payload)
+        if response.status_code == 200:
+            result = response.json()
+            if isinstance(result, list) and len(result) > 0:
+                return result[0].get('generated_text', '').strip()
+            return result.get('generated_text', '').strip()
+        else:
+            st.error(f"API Error: {response.status_code} - {response.text}")
+            return None
     except Exception as e:
-        st.error(f"Model generation failed: {str(e)}")
+        st.error(f"API call failed: {str(e)}")
         return None
 
 def generate_interview_question(role, level, question_number, focus_areas):
@@ -151,7 +139,7 @@ Format your response as just the interview question, without any additional text
 
 Question:"""
 
-    return call_huggingface_model(prompt, max_length=150)
+    return call_huggingface_api(prompt, max_length=150)
 
 def generate_feedback(question, answer, role, level):
     """Generate feedback for the candidate's answer"""
@@ -173,7 +161,7 @@ Keep the feedback constructive, professional, and actionable. Focus on the techn
 
 Feedback:"""
 
-    return call_huggingface_model(prompt, max_length=400)
+    return call_huggingface_api(prompt, max_length=400)
 
 def generate_follow_up_question(original_question, answer, role):
     """Generate a follow-up question based on the candidate's answer"""
@@ -191,7 +179,7 @@ Generate a natural follow-up question that:
 
 Follow-up Question:"""
 
-    return call_huggingface_model(prompt, max_length=100)
+    return call_huggingface_api(prompt, max_length=100)
 
 def extract_score_from_feedback(feedback_text):
     """Extract numerical score from feedback text"""
@@ -259,30 +247,16 @@ st.markdown("### Practice real interviews with AI feedback - Powered by Hugging 
 with st.sidebar:
     st.header("🔧 Configuration")
     
-    # API Token input
-    hf_token = st.secrets.get("hf_tokens", None)
+    # Check if token exists
+    hf_token = st.secrets.get("HF_TOKEN", None)
     
     if not hf_token:
-        st.warning("⚠️ Please enter your Hugging Face token to continue")
+        st.warning("⚠️ Please add your Hugging Face token to Streamlit secrets")
         st.markdown("[Get your free token here](https://huggingface.co/settings/tokens)")
-        hf_token = st.text_input("Hugging Face Token", type="password")
-        
-        if hf_token:
-            with st.spinner("Initializing model..."):
-                if initialize_model(hf_token):
-                    st.success("Model initialized successfully!")
-                else:
-                    st.error("Failed to initialize model. Please check your token.")
-        else:
-            st.stop()
+        st.markdown("[How to add secrets to Streamlit](https://docs.streamlit.io/streamlit-community-cloud/deploy-your-app/secrets-management)")
+        st.stop()
     else:
-        if not st.session_state.model_initialized:
-            with st.spinner("Initializing model..."):
-                if initialize_model(hf_token):
-                    st.success("Model initialized successfully!")
-                else:
-                    st.error("Failed to initialize model. Please check your token.")
-                    st.stop()
+        st.success("✅ Hugging Face token found")
     
     st.markdown("---")
     
@@ -330,23 +304,20 @@ if not st.session_state.interview_started:
     
     # Start interview button
     if st.button("🎬 Start Interview", type="primary", use_container_width=True):
-        if not st.session_state.model_initialized:
-            st.error("Model not initialized. Please check your Hugging Face token.")
-        else:
-            st.session_state.current_role = selected_role
-            st.session_state.current_level = selected_level
-            st.session_state.interview_started = True
-            st.session_state.question_count = 1
-            st.session_state.conversation_history = []
-            st.session_state.feedback_scores = []
-            st.session_state.user_profile = {
-                'name': candidate_name,
-                'role': selected_role,
-                'level': selected_level,
-                'years_exp': years_exp,
-                'start_time': datetime.now()
-            }
-            st.rerun()
+        st.session_state.current_role = selected_role
+        st.session_state.current_level = selected_level
+        st.session_state.interview_started = True
+        st.session_state.question_count = 1
+        st.session_state.conversation_history = []
+        st.session_state.feedback_scores = []
+        st.session_state.user_profile = {
+            'name': candidate_name,
+            'role': selected_role,
+            'level': selected_level,
+            'years_exp': years_exp,
+            'start_time': datetime.now()
+        }
+        st.rerun()
 
 else:
     # Active interview
@@ -522,7 +493,7 @@ else:
                 'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
                 'overall_score': avg_score,
                 'questions_answered': len(st.session_state.conversation_history),
-                'conversation': st.session_state.conversation_history
+                'conversation': st.session_state.converstation_history
             }
             
             st.download_button(
@@ -557,9 +528,6 @@ Required packages for requirements.txt:
 streamlit
 requests
 pandas
-transformers
-torch
-sentencepiece
 
 To get Hugging Face token:
 1. Go to https://huggingface.co/

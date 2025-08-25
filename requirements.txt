@@ -1,5 +1,4 @@
 torch
 transformers
-pyttsx3
-SpeechRecognition
+requests
 pyaudio

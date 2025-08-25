@@ -6,7 +6,7 @@ import torch
 
 # --- Model Setup with Proper Caching ---
 MODEL_NAME = "google/flan-t5-large"  # Using a smaller model for better performance
-HF_TOKEN = st.secrets.get("HF_TOKEN", None)
+HF_TOKEN = st.secrets.get("hf_tokens", None)
 
 # Initialize session state for model loading
 if 'model_loaded' not in st.session_state:

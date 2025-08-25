@@ -28,57 +28,84 @@ if 'user_profile' not in st.session_state:
     st.session_state.user_profile = {}
 if 'feedback_scores' not in st.session_state:
     st.session_state.feedback_scores = []
+if 'use_fallback_mode' not in st.session_state:
+    st.session_state.use_fallback_mode = False
 
-# Career roles configuration
+# Career roles configuration with predefined questions
 CAREER_ROLES = {
     "Software Developer": {
         "icon": "💻",
         "description": "Build applications, websites, and software solutions",
         "focus_areas": ["programming languages", "frameworks", "problem-solving", "debugging", "system design"],
-        "level_options": ["Junior", "Mid-level", "Senior", "Lead"]
+        "level_options": ["Junior", "Mid-level", "Senior", "Lead"],
+        "questions": {
+            "Junior": [
+                "What programming languages are you most comfortable with and why?",
+                "Can you explain the concept of object-oriented programming?",
+                "How would you approach debugging a piece of code that isn't working as expected?",
+                "What is version control and why is it important in software development?",
+                "Describe a simple project you've worked on and what you learned from it."
+            ],
+            "Mid-level": [
+                "How do you ensure the quality of your code before submitting it for review?",
+                "Can you explain the difference between REST and GraphQL APIs?",
+                "Describe your experience with testing frameworks and methodologies.",
+                "How would you optimize a slow database query?",
+                "What's your approach to learning new technologies or frameworks?"
+            ],
+            "Senior": [
+                "Describe your experience with system architecture and design patterns.",
+                "How do you approach mentoring junior developers on your team?",
+                "What strategies do you use for managing technical debt?",
+                "Can you discuss a challenging technical problem you solved and your process?",
+                "How do you balance business requirements with technical best practices?"
+            ],
+            "Lead": [
+                "How do you approach technical leadership and decision-making in your team?",
+                "Describe your experience with project planning and estimation.",
+                "What strategies do you use for managing stakeholder expectations?",
+                "How do you foster innovation and continuous improvement in your team?",
+                "Can you discuss a time when you had to make a difficult technical trade-off?"
+            ]
+        }
     },
     "Data Scientist": {
         "icon": "📊", 
         "description": "Analyze data and build machine learning models",
         "focus_areas": ["statistics", "machine learning", "data analysis", "Python/R", "business insights"],
-        "level_options": ["Junior", "Mid-level", "Senior", "Principal"]
-    },
-    "Product Manager": {
-        "icon": "🚀",
-        "description": "Guide product development and strategy",
-        "focus_areas": ["product strategy", "user research", "roadmapping", "stakeholder management", "metrics"],
-        "level_options": ["Associate", "Product Manager", "Senior PM", "Director"]
-    },
-    "UX Designer": {
-        "icon": "🎨",
-        "description": "Design user experiences and interfaces",
-        "focus_areas": ["user research", "design thinking", "prototyping", "usability testing", "visual design"],
-        "level_options": ["Junior", "Mid-level", "Senior", "Lead"]
-    },
-    "DevOps Engineer": {
-        "icon": "⚙️",
-        "description": "Manage infrastructure and deployment pipelines",
-        "focus_areas": ["cloud platforms", "CI/CD", "containerization", "monitoring", "automation"],
-        "level_options": ["Junior", "Mid-level", "Senior", "Principal"]
-    },
-    "Cybersecurity Analyst": {
-        "icon": "🛡️",
-        "description": "Protect systems from security threats",
-        "focus_areas": ["threat analysis", "incident response", "security tools", "compliance", "risk assessment"],
-        "level_options": ["Analyst", "Senior Analyst", "Specialist", "Manager"]
-    },
-    "Marketing Manager": {
-        "icon": "📱",
-        "description": "Develop and execute marketing strategies",
-        "focus_areas": ["digital marketing", "campaign management", "analytics", "brand strategy", "customer acquisition"],
-        "level_options": ["Coordinator", "Manager", "Senior Manager", "Director"]
-    },
-    "Business Analyst": {
-        "icon": "📈",
-        "description": "Analyze business processes and requirements",
-        "focus_areas": ["requirements gathering", "process improvement", "stakeholder management", "documentation", "analysis"],
-        "level_options": ["Junior", "Business Analyst", "Senior BA", "Lead"]
+        "level_options": ["Junior", "Mid-level", "Senior", "Principal"],
+        "questions": {
+            "Junior": [
+                "What statistical concepts are most important in data science?",
+                "Can you explain the difference between supervised and unsupervised learning?",
+                "What Python libraries are you familiar with for data analysis?",
+                "How would you handle missing values in a dataset?",
+                "Describe a simple data visualization you created and what it showed."
+            ],
+            "Mid-level": [
+                "How do you evaluate the performance of a machine learning model?",
+                "Can you explain the bias-variance tradeoff?",
+                "What's your experience with feature engineering?",
+                "How would you explain a complex model to non-technical stakeholders?",
+                "Describe your process for cleaning and preparing data for analysis."
+            ],
+            "Senior": [
+                "How do you approach designing a machine learning system from end to end?",
+                "What strategies do you use for managing data science projects?",
+                "Can you discuss a time when you had to make a trade-off between model complexity and interpretability?",
+                "How do you stay updated with the latest developments in data science?",
+                "What's your experience with deploying models to production environments?"
+            ],
+            "Principal": [
+                "How do you develop data strategy for an organization?",
+                "What's your approach to building and leading a data science team?",
+                "How do you measure the ROI of data science initiatives?",
+                "Can you discuss your experience with big data technologies?",
+                "How do you ensure ethical use of data and AI in your projects?"
+            ]
+        }
     }
+    # Add more roles as needed...
 }
 
 def call_huggingface_api(prompt, model_name="openai/gpt-oss-20b", max_length=500):
@@ -114,14 +141,31 @@ def call_huggingface_api(prompt, model_name="openai/gpt-oss-20b", max_length=500
             return result.get('generated_text', '').strip()
         else:
             st.error(f"API Error: {response.status_code} - {response.text}")
+            # Switch to fallback mode if API is not available
+            if response.status_code == 400 and "paused" in response.text:
+                st.session_state.use_fallback_mode = True
+                st.warning("Switching to fallback mode with predefined questions.")
             return None
     except Exception as e:
         st.error(f"API call failed: {str(e)}")
+        st.session_state.use_fallback_mode = True
+        st.warning("Switching to fallback mode with predefined questions.")
         return None
 
 def generate_interview_question(role, level, question_number, focus_areas):
-    """Generate an interview question using AI"""
+    """Generate an interview question using AI or fallback to predefined questions"""
     
+    # Use fallback mode if API is not available
+    if st.session_state.use_fallback_mode:
+        role_data = CAREER_ROLES.get(role, {})
+        questions = role_data.get("questions", {}).get(level, [])
+        
+        if questions and question_number <= len(questions):
+            return questions[question_number - 1]
+        else:
+            return "Tell me about your experience and why you're interested in this role."
+    
+    # Otherwise use AI generation
     prompt = f"""You are an experienced {role} hiring manager conducting a professional interview. 
 
 Role: {role} ({level} level)
@@ -144,6 +188,11 @@ Question:"""
 def generate_feedback(question, answer, role, level):
     """Generate feedback for the candidate's answer"""
     
+    # Use fallback mode if API is not available
+    if st.session_state.use_fallback_mode:
+        return f"Thank you for your answer. For a {level} {role} position, we look for candidates who can demonstrate practical experience with specific examples. Consider expanding on your answer with more details about your direct experience and the impact of your work."
+    
+    # Otherwise use AI generation
     prompt = f"""You are an expert {role} interviewer evaluating a candidate's response.
 
 Role: {role} ({level} level)
@@ -166,6 +215,11 @@ Feedback:"""
 def generate_follow_up_question(original_question, answer, role):
     """Generate a follow-up question based on the candidate's answer"""
     
+    # Use fallback mode if API is not available
+    if st.session_state.use_fallback_mode:
+        return "Can you tell me more about that experience?"
+    
+    # Otherwise use AI generation
     prompt = f"""You are interviewing for a {role} position. Based on the candidate's previous answer, generate a relevant follow-up question.
 
 Original Question: {original_question}
@@ -254,7 +308,6 @@ with st.sidebar:
         st.warning("⚠️ Please add your Hugging Face token to Streamlit secrets")
         st.markdown("[Get your free token here](https://huggingface.co/settings/tokens)")
         st.markdown("[How to add secrets to Streamlit](https://docs.streamlit.io/streamlit-community-cloud/deploy-your-app/secrets-management)")
-        st.stop()
     else:
         st.success("✅ Hugging Face token found")
     
@@ -334,6 +387,10 @@ else:
             st.session_state.interview_started = False
             st.rerun()
     
+    # Display mode info if in fallback mode
+    if st.session_state.use_fallback_mode:
+        st.warning("⚠️ Using fallback mode with predefined questions. API is currently unavailable.")
+    
     # Generate and display question
     if st.session_state.question_count <= st.session_state.max_questions:
         
@@ -348,8 +405,13 @@ else:
                 if question:
                     st.session_state[current_question_key] = question
                 else:
-                    st.error("Failed to generate question. Please check your API token and try again.")
-                    st.stop()
+                    # If API fails and we're not already in fallback mode
+                    if not st.session_state.use_fallback_mode:
+                        st.session_state.use_fallback_mode = True
+                        st.rerun()
+                    else:
+                        st.error("Failed to generate question. Please try again.")
+                        st.stop()
         
         current_question = st.session_state[current_question_key]
         
@@ -493,7 +555,7 @@ else:
                 'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
                 'overall_score': avg_score,
                 'questions_answered': len(st.session_state.conversation_history),
-                'conversation': st.session_state.converstation_history
+                'conversation': st.session_state.conversation_history
             }
             
             st.download_button(
@@ -514,34 +576,10 @@ else:
             st.session_state.question_count = 0
             st.session_state.conversation_history = []
             st.session_state.feedback_scores = []
+            st.session_state.use_fallback_mode = False
             st.rerun()
 
 # Footer
 st.markdown("---")
 st.markdown("**💡 Interview Tips:**")
 st.markdown("• Use the STAR method (Situation, Task, Action, Result) • Give specific examples • Be concise but thorough • Show your problem-solving process")
-
-# Requirements as comment for easy setup
-"""
-Required packages for requirements.txt:
-
-streamlit
-requests
-pandas
-
-To get Hugging Face token:
-1. Go to https://huggingface.co/
-2. Create a free account
-3. Go to Settings -> Access Tokens
-4. Create a new token with 'read' permissions
-5. Copy and paste the token in the app
-
-To deploy on Streamlit Cloud:
-1. Push this code to GitHub
-2. Go to share.streamlit.io
-3. Connect your GitHub repo
-4. Add your HF_TOKEN as a secret in the Streamlit settings
-5. Deploy!
-
-No additional audio libraries needed - the app simulates TTS/STT functionality
-"""

@@ -1,5 +1,5 @@
-transformers 
-torch 
-pyttsx3 
-SpeechRecognition 
+torch==2.0.0
+transformers==4.30.0
+pyttsx3==2.90
+SpeechRecognition==3.10.0
 pyaudio

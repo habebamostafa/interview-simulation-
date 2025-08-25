@@ -108,7 +108,7 @@ CAREER_ROLES = {
     # Add more roles as needed...
 }
 
-def call_huggingface_api(prompt, model_name="openai/gpt-oss-20b", max_length=500):
+def call_huggingface_api(prompt, model_name="google/flan-t5-large", max_length=500):
     """Call Hugging Face API with the given prompt"""
     
     # Get the token from secrets

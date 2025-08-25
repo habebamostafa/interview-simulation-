@@ -5,6 +5,7 @@ import time
 import random
 from datetime import datetime
 import pandas as pd
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 # Configure page
 st.set_page_config(
@@ -28,6 +29,12 @@ if 'user_profile' not in st.session_state:
     st.session_state.user_profile = {}
 if 'feedback_scores' not in st.session_state:
     st.session_state.feedback_scores = []
+if 'model_initialized' not in st.session_state:
+    st.session_state.model_initialized = False
+if 'tokenizer' not in st.session_state:
+    st.session_state.tokenizer = None
+if 'model' not in st.session_state:
+    st.session_state.model = None
 
 # Career roles configuration
 CAREER_ROLES = {
@@ -81,38 +88,50 @@ CAREER_ROLES = {
     }
 }
 
-def call_huggingface_api(prompt, hf_token, max_length=500):
-    """Call Hugging Face API with the given prompt"""
-    
-    API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-large"
-    headers = {"Authorization": f"Bearer {hf_token}"}
-    
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_length": max_length,
-            "temperature": 0.7,
-            "do_sample": True,
-            "top_p": 0.9,
-            "return_full_text": False
-        }
-    }
+def initialize_model(hf_token):
+    """Initialize the model and tokenizer"""
+    try:
+        model_name = "microsoft/DialoGPT-large"  # Using the original model as the specified one may not exist
+        st.session_state.tokenizer = AutoTokenizer.from_pretrained(model_name, token=hf_token)
+        st.session_state.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, token=hf_token)
+        st.session_state.model_initialized = True
+        return True
+    except Exception as e:
+        st.error(f"Failed to initialize model: {str(e)}")
+        return False
+
+def call_huggingface_model(prompt, max_length=500):
+    """Generate response using the loaded model"""
+    if not st.session_state.model_initialized:
+        return None
     
     try:
-        response = requests.post(API_URL, headers=headers, json=payload)
-        if response.status_code == 200:
-            result = response.json()
-            if isinstance(result, list) and len(result) > 0:
-                return result[0].get('generated_text', '').strip()
-            return result.get('generated_text', '').strip()
-        else:
-            st.error(f"API Error: {response.status_code} - {response.text}")
-            return None
+        # Tokenize input
+        inputs = st.session_state.tokenizer.encode(prompt, return_tensors="pt", max_length=512, truncation=True)
+        
+        # Generate response
+        outputs = st.session_state.model.generate(
+            inputs, 
+            max_length=max_length,
+            temperature=0.7,
+            do_sample=True,
+            top_p=0.9,
+            pad_token_id=st.session_state.tokenizer.eos_token_id
+        )
+        
+        # Decode and return response
+        response = st.session_state.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Remove the input prompt from the response if it's included
+        if response.startswith(prompt):
+            response = response[len(prompt):].strip()
+            
+        return response
     except Exception as e:
-        st.error(f"API call failed: {str(e)}")
+        st.error(f"Model generation failed: {str(e)}")
         return None
 
-def generate_interview_question(role, level, question_number, focus_areas, hf_token):
+def generate_interview_question(role, level, question_number, focus_areas):
     """Generate an interview question using AI"""
     
     prompt = f"""You are an experienced {role} hiring manager conducting a professional interview. 
@@ -132,9 +151,9 @@ Format your response as just the interview question, without any additional text
 
 Question:"""
 
-    return call_huggingface_api(prompt, hf_token, max_length=150)
+    return call_huggingface_model(prompt, max_length=150)
 
-def generate_feedback(question, answer, role, level, hf_token):
+def generate_feedback(question, answer, role, level):
     """Generate feedback for the candidate's answer"""
     
     prompt = f"""You are an expert {role} interviewer evaluating a candidate's response.
@@ -154,9 +173,9 @@ Keep the feedback constructive, professional, and actionable. Focus on the techn
 
 Feedback:"""
 
-    return call_huggingface_api(prompt, hf_token, max_length=400)
+    return call_huggingface_model(prompt, max_length=400)
 
-def generate_follow_up_question(original_question, answer, role, hf_token):
+def generate_follow_up_question(original_question, answer, role):
     """Generate a follow-up question based on the candidate's answer"""
     
     prompt = f"""You are interviewing for a {role} position. Based on the candidate's previous answer, generate a relevant follow-up question.
@@ -172,7 +191,7 @@ Generate a natural follow-up question that:
 
 Follow-up Question:"""
 
-    return call_huggingface_api(prompt, hf_token, max_length=100)
+    return call_huggingface_model(prompt, max_length=100)
 
 def extract_score_from_feedback(feedback_text):
     """Extract numerical score from feedback text"""
@@ -241,12 +260,29 @@ with st.sidebar:
     st.header("🔧 Configuration")
     
     # API Token input
-    hf_token = st.secrets.get("hf_token", None)
+    hf_token = st.secrets.get("hf_tokens", None)
     
     if not hf_token:
         st.warning("⚠️ Please enter your Hugging Face token to continue")
         st.markdown("[Get your free token here](https://huggingface.co/settings/tokens)")
-        st.stop()
+        hf_token = st.text_input("Hugging Face Token", type="password")
+        
+        if hf_token:
+            with st.spinner("Initializing model..."):
+                if initialize_model(hf_token):
+                    st.success("Model initialized successfully!")
+                else:
+                    st.error("Failed to initialize model. Please check your token.")
+        else:
+            st.stop()
+    else:
+        if not st.session_state.model_initialized:
+            with st.spinner("Initializing model..."):
+                if initialize_model(hf_token):
+                    st.success("Model initialized successfully!")
+                else:
+                    st.error("Failed to initialize model. Please check your token.")
+                    st.stop()
     
     st.markdown("---")
     
@@ -294,20 +330,23 @@ if not st.session_state.interview_started:
     
     # Start interview button
     if st.button("🎬 Start Interview", type="primary", use_container_width=True):
-        st.session_state.current_role = selected_role
-        st.session_state.current_level = selected_level
-        st.session_state.interview_started = True
-        st.session_state.question_count = 1
-        st.session_state.conversation_history = []
-        st.session_state.feedback_scores = []
-        st.session_state.user_profile = {
-            'name': candidate_name,
-            'role': selected_role,
-            'level': selected_level,
-            'years_exp': years_exp,
-            'start_time': datetime.now()
-        }
-        st.rerun()
+        if not st.session_state.model_initialized:
+            st.error("Model not initialized. Please check your Hugging Face token.")
+        else:
+            st.session_state.current_role = selected_role
+            st.session_state.current_level = selected_level
+            st.session_state.interview_started = True
+            st.session_state.question_count = 1
+            st.session_state.conversation_history = []
+            st.session_state.feedback_scores = []
+            st.session_state.user_profile = {
+                'name': candidate_name,
+                'role': selected_role,
+                'level': selected_level,
+                'years_exp': years_exp,
+                'start_time': datetime.now()
+            }
+            st.rerun()
 
 else:
     # Active interview
@@ -333,7 +372,7 @@ else:
             with st.spinner("🤖 Generating interview question..."):
                 question = generate_interview_question(
                     role, level, st.session_state.question_count, 
-                    role_info['focus_areas'], hf_token
+                    role_info['focus_areas']
                 )
                 if question:
                     st.session_state[current_question_key] = question
@@ -406,7 +445,7 @@ else:
                     
                     # Generate feedback
                     with st.spinner("🤖 Generating feedback..."):
-                        feedback = generate_feedback(current_question, answer, role, level, hf_token)
+                        feedback = generate_feedback(current_question, answer, role, level)
                         if feedback:
                             # Extract score
                             score = extract_score_from_feedback(feedback)
@@ -518,6 +557,9 @@ Required packages for requirements.txt:
 streamlit
 requests
 pandas
+transformers
+torch
+sentencepiece
 
 To get Hugging Face token:
 1. Go to https://huggingface.co/
@@ -530,7 +572,8 @@ To deploy on Streamlit Cloud:
 1. Push this code to GitHub
 2. Go to share.streamlit.io
 3. Connect your GitHub repo
-4. Deploy!
+4. Add your HF_TOKEN as a secret in the Streamlit settings
+5. Deploy!
 
 No additional audio libraries needed - the app simulates TTS/STT functionality
 """
